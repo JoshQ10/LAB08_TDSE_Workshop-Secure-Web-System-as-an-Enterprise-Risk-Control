@@ -1,0 +1,30 @@
+# Secrets and local environment
+# Ignore every .env variant but keep the committable example files.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# Node / frontend
+node_modules/
+frontend/dist/
+
+# Java / backend
+backend/target/
+*.class
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.idea/
+.vscode/
+*.iml

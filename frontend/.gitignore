@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+# Environment files: ignore all, keep only the example.
+.env
+.env.*
+!.env.example
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.vite/

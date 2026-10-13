@@ -1,0 +1,15 @@
+[Unit]
+Description=Enterprise Risk API
+After=network.target
+
+[Service]
+User=riskapi
+WorkingDirectory=/opt/enterprise-risk-api
+Environment="SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_ISSUER_URI=https://YOUR_TENANT.us.auth0.com/"
+Environment="SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_AUDIENCES=https://enterprise-risk-api"
+ExecStart=/usr/bin/java -jar /opt/enterprise-risk-api/app.jar
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

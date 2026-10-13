@@ -1,0 +1,12 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+.mvn/wrapper/maven-wrapper.properties.bak
+*.class
+*.log
+.mtj.tmp/
+.attach_pid*
+
+# Local configuration that may hold secrets
+application-local.properties
+*-local.properties
+*.local.properties
