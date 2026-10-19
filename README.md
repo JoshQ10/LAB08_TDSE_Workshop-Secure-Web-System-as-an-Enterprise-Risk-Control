@@ -194,7 +194,8 @@ centralized, timestamped record for incident response.
 │   │   ├── config/SecurityConfig.java       # Security, CORS, resource server
 │   │   └── controller/RiskController.java   # Protected /api/risk-status
 │   ├── src/main/resources/application.properties
-│   ├── src/test/java/.../RiskControllerTest.java
+│   ├── src/test/java/.../RiskControllerTest.java   # Unit test of the endpoint
+│   ├── src/test/java/.../SecurityConfigTest.java   # 401 / 200 / health / deny-all
 │   ├── mvnw / mvnw.cmd
 │   └── pom.xml
 ├── frontend/                        # Vite + React SPA
@@ -204,6 +205,7 @@ centralized, timestamped record for incident response.
 │   │   └── index.css
 │   ├── .env.example                 # Committable template (no secrets)
 │   ├── .env.local                   # Local values (git-ignored)
+│   ├── .env.production.local        # Production build values (git-ignored)
 │   ├── index.html
 │   ├── vite.config.js
 │   └── package.json
@@ -216,13 +218,40 @@ centralized, timestamped record for incident response.
 
 ## Auth0 configuration
 
-Create a tenant, then provision two objects:
+The **API** represents the protected backend (the *resource*); the **Single Page
+Application** represents the browser client. The API and its permission are created
+first so that the permission can be explicitly granted to the SPA afterwards.
 
-1. **Application → Single Page Application**, named `Enterprise Risk Lab Frontend`.
-2. **API → name** `Enterprise Risk Lab API`, **identifier (audience)**
-   `https://enterprise-risk-api`, **signing algorithm** `RS256`.
+### 1. Create the API
 
-Configure the SPA (replace the placeholder hostname with your deployed one):
+**Applications → APIs → Create API**
+
+| Field               | Value                         |
+| ------------------- | ----------------------------- |
+| Name                | `Enterprise Risk Lab API`     |
+| Identifier (audience) | `https://enterprise-risk-api` |
+| Signing algorithm   | `RS256`                       |
+
+The audience is the unique identifier of the backend that accepts the token. It must
+match **exactly** in Auth0, in `VITE_AUTH0_AUDIENCE` (React), and in
+`spring.security.oauth2.resourceserver.jwt.audiences` (Spring Boot).
+
+### 2. Define the permission
+
+Open the API → **Permissions** and add:
+
+| Permission  | Description                     |
+| ----------- | ------------------------------- |
+| `read:risk` | Read the protected risk status  |
+
+The API is the resource; `read:risk` is one allowed action on that resource. The backend
+in this lab only requires an *authenticated* token, but declaring the permission is the
+first step towards scope-based authorization (e.g. `hasAuthority("SCOPE_read:risk")`).
+
+### 3. Create and configure the browser client
+
+**Applications → Applications → Create Application → Single Page Application**, named
+`Enterprise Risk Lab Frontend`. In **Settings** (replace the hostname with yours):
 
 | Setting               | Value                                                        |
 | --------------------- | ------------------------------------------------------------ |
@@ -230,13 +259,34 @@ Configure the SPA (replace the placeholder hostname with your deployed one):
 | Allowed Logout URLs   | `http://localhost:5173,https://YOUR-SUBDOMAIN.duckdns.org`    |
 | Allowed Web Origins   | `http://localhost:5173,https://YOUR-SUBDOMAIN.duckdns.org`    |
 
-Values to record (never commit them, and **never** a client secret for an SPA):
+These tell Auth0 where it may safely redirect to, log out to, and accept requests from.
+No wildcards are used.
+
+### 4. Grant the SPA access to the API (User-Delegated Access)
+
+**Applications → Applications → Enterprise Risk Lab Frontend → APIs** → find
+`Enterprise Risk Lab API` → **Edit** → under **User-Delegated Access** choose
+**Grant Access**, select `read:risk` (or *All*), and save.
+
+> **Why User-Delegated Access?** The SPA acts *on behalf of a signed-in person*. The
+> green check under **Client Access** is for machine-to-machine applications and does
+> **not** authorize a browser login. Without it Auth0 returns
+> `Client "..." is not authorized to access resource server "https://enterprise-risk-api"`.
+
+### 5. Record the client configuration and create a test user
+
+Values the frontend may contain (they are public by design — **never** a client secret):
 
 ```
 AUTH0_DOMAIN=YOUR_TENANT.us.auth0.com
 AUTH0_CLIENT_ID=...
 AUTH0_AUDIENCE=https://enterprise-risk-api
 ```
+
+Create a test account in **Authentication → Database → Users** (`Username-Password-Authentication`
+connection) and make sure that connection is enabled for the SPA
+(**Applications → Enterprise Risk Lab Frontend → Connections**). Use this account to log in
+through the React application.
 
 ## Backend
 
@@ -287,6 +337,11 @@ A Vite React SPA that delegates all authentication to Auth0.
 - `App.jsx` exposes **Log in**, **Call protected API**, and **Log out**. Tokens are obtained
   on demand with `getAccessTokenSilently()` and sent only in the `Authorization` header;
   they are never displayed or persisted manually.
+- `callApi()` reads the response as **text first** and only then parses it as JSON. Spring
+  Security answers a rejected token with `401` and an **empty body**, so calling
+  `response.json()` directly would surface a misleading
+  `JSON.parse: unexpected end of data`. Instead the UI shows
+  `Request failed: API returned 401`, which points straight at the real cause.
 
 Environment variables (`.env.local`, git-ignored):
 
@@ -319,6 +374,15 @@ curl -i http://localhost:8080/api/risk-status      # → 401 Unauthorized (expec
 curl -i http://localhost:8080/actuator/health      # → 200 OK
 ```
 
+Run the automated tests (no Auth0 connection needed — JWTs are mocked):
+
+```bash
+./mvnw test
+```
+
+`SecurityConfigTest` checks that `/api/risk-status` returns **401** without a token and
+**200** with a JWT, that `/actuator/health` is public, and that undeclared paths are denied.
+
 ### 2. Frontend
 
 ```bash
@@ -335,7 +399,25 @@ Open `http://localhost:5173`, log in, and click **Call protected API**.
 ### 1. Duck DNS
 
 Create a subdomain (e.g. `team4-risk.duckdns.org`) and point it at the server's public IP.
-Confirm it resolves, then allow inbound TCP **80** and **443** only — **never** expose 8080.
+To keep it updated, add a cron job on the server (the token stays on the server, never in
+the repo):
+
+```bash
+mkdir -p ~/duckdns && echo 'echo url="https://www.duckdns.org/update?domains=YOUR-SUBDOMAIN&token=YOUR_DUCKDNS_TOKEN&ip=" | curl -k -o ~/duckdns/duck.log -K -' > ~/duckdns/duck.sh
+chmod 700 ~/duckdns/duck.sh
+(crontab -l 2>/dev/null; echo "*/5 * * * * ~/duckdns/duck.sh >/dev/null 2>&1") | crontab -
+nslookup YOUR-SUBDOMAIN.duckdns.org      # must return the server's public IP
+```
+
+Then allow inbound TCP **80** and **443** only — **never** expose 8080 — both in the cloud
+provider's security group / firewall and on the host:
+
+```bash
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
+```
 
 ### 2. Server packages (Ubuntu)
 
@@ -349,36 +431,62 @@ enable the firewall.
 
 ### 3. Build artifacts (on a trusted machine or CI)
 
+For the production build the frontend must call the API through Apache on the same HTTPS
+origin. Create `frontend/.env.production.local` (git-ignored; Vite gives it priority over
+`.env.local` when running `npm run build`):
+
+```
+VITE_AUTH0_DOMAIN=YOUR_TENANT.us.auth0.com
+VITE_AUTH0_CLIENT_ID=YOUR_CLIENT_ID
+VITE_AUTH0_AUDIENCE=https://enterprise-risk-api
+VITE_API_URL=https://YOUR-SUBDOMAIN.duckdns.org
+```
+
 ```bash
 (cd frontend && npm run build)      # → frontend/dist/
 (cd backend  && ./mvnw clean package)   # → backend/target/*.jar
 ```
 
-Transfer the build outputs to the server over a secure channel (e.g. `scp`/`rsync` over SSH).
+Transfer the build outputs to the server over a secure channel (e.g. `scp`/`rsync` over SSH):
+
+```bash
+scp backend/target/enterprise-risk-api-0.0.1-SNAPSHOT.jar deploy/* USER@SERVER_IP:~/
+scp -r frontend/dist USER@SERVER_IP:~/
+```
 
 ### 4. Backend service
 
+Edit `deploy/enterprise-risk-api.service` first: set your Auth0 tenant in the issuer URI and
+your Duck DNS hostname in `APP_CORS_ALLOWED_ORIGINS`. Compared with the base template, the
+unit also sets `SERVER_ADDRESS=127.0.0.1` so the API **only listens on loopback** (defence in
+depth on top of the firewall), and adds basic systemd hardening (`NoNewPrivileges`,
+`PrivateTmp`, `ProtectSystem`, `ProtectHome`).
+
 ```bash
 sudo mkdir -p /opt/enterprise-risk-api
-sudo cp backend/target/*.jar /opt/enterprise-risk-api/app.jar
+sudo cp ~/enterprise-risk-api-0.0.1-SNAPSHOT.jar /opt/enterprise-risk-api/app.jar
 sudo useradd --system --no-create-home riskapi
 sudo chown -R riskapi:riskapi /opt/enterprise-risk-api
 
-sudo cp deploy/enterprise-risk-api.service /etc/systemd/system/
+sudo cp ~/enterprise-risk-api.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now enterprise-risk-api
-curl http://127.0.0.1:8080/actuator/health
+curl http://127.0.0.1:8080/actuator/health          # → {"status":"UP"}
+sudo ss -tlnp | grep 8080                           # → 127.0.0.1:8080, not 0.0.0.0
 ```
 
 ### 5. Apache + TLS
 
+Replace `YOUR-SUBDOMAIN` in `deploy/enterprise-risk.conf`, then:
+
 ```bash
 sudo mkdir -p /var/www/enterprise-risk-frontend
-sudo cp -r frontend/dist/* /var/www/enterprise-risk-frontend/
+sudo cp -r ~/dist/* /var/www/enterprise-risk-frontend/
 
 sudo a2enmod ssl proxy proxy_http rewrite headers
-sudo cp deploy/enterprise-risk.conf /etc/apache2/sites-available/
+sudo cp ~/enterprise-risk.conf /etc/apache2/sites-available/
 sudo a2ensite enterprise-risk.conf
+sudo a2dissite 000-default.conf          # optional: remove the default Apache site
 sudo apachectl configtest
 sudo systemctl reload apache2
 
@@ -386,9 +494,22 @@ sudo certbot --apache -d YOUR-SUBDOMAIN.duckdns.org
 sudo certbot renew --dry-run
 ```
 
-Finally, rebuild the frontend with `VITE_API_URL=https://YOUR-SUBDOMAIN.duckdns.org`,
-redeploy `dist/`, and add the same HTTPS origin to the Auth0 callback, logout, and web
-origin settings.
+Certbot creates `/etc/apache2/sites-available/enterprise-risk-le-ssl.conf` (the `*:443`
+virtual host with the certificate) and, if you accept the redirect option, turns the `*:80`
+host into an HTTP→HTTPS redirect. In the generated `-le-ssl.conf` you can change
+`RequestHeader set X-Forwarded-Proto "http"` to `"https"` so the backend knows the original
+scheme.
+
+Finally, make sure the frontend was built with `VITE_API_URL=https://YOUR-SUBDOMAIN.duckdns.org`,
+redeploy `dist/` if needed, and confirm the same HTTPS origin is in the Auth0 callback,
+logout, and web origin settings.
+
+### 6. Verify from outside the server
+
+```bash
+curl -i https://YOUR-SUBDOMAIN.duckdns.org/api/risk-status     # → 401 (expected)
+curl -m 5 http://YOUR-SUBDOMAIN.duckdns.org:8080/api/risk-status   # → timeout / refused
+```
 
 ## Verification checklist
 
@@ -436,13 +557,16 @@ origin settings.
 
 | Symptom                                          | Likely cause / fix                                                                 |
 | ------------------------------------------------ | ---------------------------------------------------------------------------------- |
-| `401` even after logging in                       | Audience mismatch — the SPA must request `VITE_AUTH0_AUDIENCE`.                     |
-| CORS error in the browser console                 | Origin not listed in `app.cors.allowed-origins`.                                    |
-| `invalid issuer` at startup                       | `issuer-uri` tenant typo or missing trailing slash.                                 |
-| Login redirect error                              | Callback/logout/web origin missing from the Auth0 application.                      |
-| `502 Bad Gateway` from Apache                     | Backend not running or not listening on `127.0.0.1:8080`.                           |
-| SPA routes 404 on refresh                         | Apache rewrite to `index.html` not enabled.                                          |
-| Certbot fails validation                          | Port 80 blocked, or DNS not pointing at the server.                                 |
+| Auth0 redirects back with `Client "..." is not authorized to access resource server` | The SPA lacks **User-Delegated Access** to `https://enterprise-risk-api` (see [Auth0 step 4](#4-grant-the-spa-access-to-the-api-user-delegated-access)). Granting only *Client Access* does not authorize a browser login. |
+| `Request failed: JSON.parse: unexpected end of data` | The API returned an empty error response (token rejected). The current `callApi()` reads the body as text and shows the real HTTP status instead. |
+| `Request failed: API returned 401`               | Check that `issuer-uri` includes `https://` **and the trailing slash**, that `jwt.audiences` equals exactly `https://enterprise-risk-api`, that the SPA requests that same `VITE_AUTH0_AUDIENCE`, and restart Spring Boot after editing `application.properties`. |
+| Login works but the API call fails from `localhost:5173` (CORS error in console) | `http://localhost:5173` missing from `app.cors.allowed-origins`; fix and restart the backend. |
+| No user can sign in                               | Create a test user in **Authentication → Database → Users**, or enable a connection for the SPA. Roles are not required for this lab. |
+| Login redirect / callback mismatch error          | Callback, logout or web origin missing from the Auth0 application settings.        |
+| `502 Bad Gateway` from Apache                     | Backend not running or not listening on `127.0.0.1:8080` (`journalctl -u enterprise-risk-api`). |
+| SPA routes 404 on refresh                         | Apache rewrite to `index.html` not enabled (`a2enmod rewrite`).                    |
+| Certbot fails validation                          | Port 80 blocked, or Duck DNS not pointing at the server's public IP.               |
+| Frontend env changes ignored                      | Vite inlines `VITE_*` at build/dev-start time: restart `npm run dev` or rebuild.   |
 
 ## Evidence
 
@@ -452,6 +576,19 @@ Add your evidence before submitting:
 | ------------------------------------ | --------------------------------- |
 | Screenshot: authenticated API call   | `docs/authenticated-api-call.png` |
 | Screenshot: valid certificate        | `docs/valid-certificate.png`      |
+
+<!-- Uncomment once the images exist:
+![Authenticated API call](docs/authenticated-api-call.png)
+![Valid certificate](docs/valid-certificate.png)
+-->
+
+The certificate can also be evidenced with command output:
+
+```bash
+openssl s_client -connect YOUR-SUBDOMAIN.duckdns.org:443 -servername YOUR-SUBDOMAIN.duckdns.org </dev/null 2>/dev/null \
+  | openssl x509 -noout -subject -issuer -dates
+sudo certbot certificates
+```
 
 ## References
 
