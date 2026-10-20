@@ -564,7 +564,7 @@ curl -m 5 http://joshua-risk-lab.duckdns.org:8080/api/risk-status   # → timeou
 | Auth0 authentication        | Impersonation and weak credential handling   | Login through Auth0 Universal Login; the app shows `Signed in as prueba@test.com` and the API returns the user's `sub` (`auth0\|6ad6...`). The SPA never handles the password. |
 | JWT validation at the API   | Unauthorized API access                      | `/api/risk-status` returns `401` + `WWW-Authenticate: Bearer` without a token, locally and in production. |
 | Audience validation         | Token reuse against another API              | `jwt.audiences=https://enterprise-risk-api`: a token issued for any other audience is rejected with `401`. |
-| HTTPS with a valid cert     | Credential or token exposure in transit      | Let's Encrypt certificate for `joshua-risk-lab.duckdns.org` (valid until 18 Jan 2027). The Auth0 SDK itself refuses to start over plain HTTP, because PKCE requires a secure origin. |
+| HTTPS with a valid cert     | Credential or token exposure in transit      | Let's Encrypt certificate for `joshua-risk-lab.duckdns.org` (valid until 18 Jan 2027); every `http://` request gets a `301` redirect to `https://`. The Auth0 SDK itself refuses to start over plain HTTP, because PKCE requires a secure origin. |
 | Apache reverse proxy        | Direct exposure of the application port      | Only 22/80/443 open in the EC2 security group and `ufw`; Spring Boot listens on `127.0.0.1:8080`; external `curl` to `:8080` times out. |
 | Central service logs        | Delayed incident investigation               | The API runs as the `enterprise-risk-api` systemd service, so its startup, errors and rejected requests are kept in journald: `sudo journalctl -u enterprise-risk-api --since today`. |
 
@@ -733,6 +733,10 @@ Tomcat is bound to the loopback address only.
 ### Production checks from the public internet
 
 ```text
+$ curl -I http://joshua-risk-lab.duckdns.org
+HTTP/1.1 301 Moved Permanently
+Location: https://joshua-risk-lab.duckdns.org/      # plain HTTP is always redirected to HTTPS
+
 $ curl -i https://joshua-risk-lab.duckdns.org/api/risk-status
 HTTP/1.1 401
 WWW-Authenticate: Bearer
