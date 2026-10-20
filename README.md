@@ -515,8 +515,18 @@ sudo certbot renew --dry-run
 ```
 
 Certbot creates `/etc/apache2/sites-available/enterprise-risk-le-ssl.conf` (the `*:443`
-virtual host with the certificate) and, if you accept the redirect option, turns the `*:80`
-host into an HTTP→HTTPS redirect. In the generated `-le-ssl.conf` you can change
+virtual host with the certificate) and appends an HTTP→HTTPS redirect
+(`RewriteCond %{SERVER_NAME}` + `RewriteRule ... [R=permanent]`) to the `*:80` host. That
+rule only works if `RewriteEngine On` is set **at virtual-host level**. The one inside
+`<Directory>` (used for SPA routing) does not count, and Certbot does not add another
+because it sees one already. `deploy/enterprise-risk.conf` therefore declares
+`RewriteEngine On` at virtual-host level; on the deployed server it was added afterwards with:
+
+```bash
+sudo sed -i 's|^RewriteCond %{SERVER_NAME}|RewriteEngine On\nRewriteCond %{SERVER_NAME}|' /etc/apache2/sites-available/enterprise-risk.conf
+sudo apachectl configtest && sudo systemctl reload apache2
+curl -I http://joshua-risk-lab.duckdns.org     # → 301 Location: https://joshua-risk-lab.duckdns.org/
+``` In the generated `-le-ssl.conf` you can change
 `RequestHeader set X-Forwarded-Proto "http"` to `"https"` so the backend knows the original
 scheme.
 
@@ -599,6 +609,7 @@ makes the access decision.
 | SPA routes 404 on refresh                         | Apache rewrite to `index.html` not enabled (`a2enmod rewrite`).                    |
 | Certbot fails validation                          | Port 80 blocked, or Duck DNS not pointing at the server's public IP.               |
 | Frontend env changes ignored                      | Vite inlines `VITE_*` at build/dev-start time: restart `npm run dev` or rebuild.   |
+| `http://` answers `200` instead of redirecting to HTTPS | Certbot's redirect rule needs `RewriteEngine On` at virtual-host level in the `*:80` host (see [Apache + TLS](#5-apache--tls)). |
 | Deployed page is blank over `http://`             | The Auth0 SDK only runs on secure origins; open the site with `https://`.          |
 | `403 Forbidden` for the frontend                  | Files copied with restrictive permissions: `sudo chmod -R a+rX /var/www/enterprise-risk-frontend`. |
 | SSH `Permission denied (publickey)`               | Wrong login user for the AMI (`ubuntu` for Ubuntu, `ec2-user` for Amazon Linux) or wrong key pair. |
@@ -699,6 +710,25 @@ Apache virtual host and the frontend `dist/` directory:
 **Certbot** registering the Let's Encrypt account and requesting the certificate:
 
 <img width="600" alt="Certbot requesting the Let's Encrypt certificate" src="https://github.com/user-attachments/assets/df6f9b21-00d5-4dee-b76e-c2cc844d8620" />
+
+**Central service logs** (journald). The API runs as the unprivileged `riskapi` user from
+`/opt/enterprise-risk-api`, and every start, request-handling thread and error is recorded
+with a timestamp:
+
+```text
+$ sudo journalctl -u enterprise-risk-api --since today --no-pager | tail -20
+Oct 20 04:39:16 ip-172-31-24-77 java[31774]:  :: Spring Boot ::                (v3.3.5)
+Oct 20 04:39:16 ip-172-31-24-77 java[31774]: ... Starting EnterpriseRiskApiApplication v0.0.1-SNAPSHOT using Java 21 with PID 31774 (/opt/enterprise-risk-api/app.jar started by riskapi in /opt/enterprise-risk-api)
+Oct 20 04:39:19 ip-172-31-24-77 java[31774]: ... Tomcat initialized with port 8080 (http)
+Oct 20 04:39:19 ip-172-31-24-77 java[31774]: ... Exposing 1 endpoint beneath base path '/actuator'
+Oct 20 04:39:20 ip-172-31-24-77 java[31774]: ... Tomcat started on port 8080 (http) with context path '/'
+Oct 20 04:39:20 ip-172-31-24-77 java[31774]: ... Started EnterpriseRiskApiApplication in 4.962 seconds (process running for 5.862)
+Oct 20 04:40:05 ip-172-31-24-77 java[31774]: ... [0.1-8080-exec-1] Initializing Spring DispatcherServlet 'dispatcherServlet'
+Oct 20 04:40:05 ip-172-31-24-77 java[31774]: ... [0.1-8080-exec-1] Completed initialization in 2 ms
+```
+
+The thread name `0.1-8080-exec-1` is the end of `127.0.0.1-8080-exec-1`, which shows that
+Tomcat is bound to the loopback address only.
 
 ### Production checks from the public internet
 
