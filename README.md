@@ -15,9 +15,10 @@ authenticated with **Auth0** against a **Spring Boot** backend protected as an *
 Resource Server**, and deploys both behind **Apache with a valid Let's Encrypt
 certificate** on a public **Duck DNS** hostname.
 
-> **Deployed address**
+> **Deployed address:** <https://joshua-risk-lab.duckdns.org>
 >
-> `https://YOUR-SUBDOMAIN.duckdns.org` — replace with your live URL before submitting.
+> React SPA + Auth0 login + Spring Boot API behind Apache, with a Let's Encrypt certificate,
+> on AWS EC2 (Ubuntu 24.04). See [Evidence](#evidence) for screenshots and command output.
 
 ---
 
@@ -251,13 +252,13 @@ first step towards scope-based authorization (e.g. `hasAuthority("SCOPE_read:ris
 ### 3. Create and configure the browser client
 
 **Applications → Applications → Create Application → Single Page Application**, named
-`Enterprise Risk Lab Frontend`. In **Settings** (replace the hostname with yours):
+`Enterprise Risk Lab Frontend`. In **Settings**:
 
 | Setting               | Value                                                        |
 | --------------------- | ------------------------------------------------------------ |
-| Allowed Callback URLs | `http://localhost:5173,https://YOUR-SUBDOMAIN.duckdns.org`    |
-| Allowed Logout URLs   | `http://localhost:5173,https://YOUR-SUBDOMAIN.duckdns.org`    |
-| Allowed Web Origins   | `http://localhost:5173,https://YOUR-SUBDOMAIN.duckdns.org`    |
+| Allowed Callback URLs | `http://localhost:5173,https://joshua-risk-lab.duckdns.org`    |
+| Allowed Logout URLs   | `http://localhost:5173,https://joshua-risk-lab.duckdns.org`    |
+| Allowed Web Origins   | `http://localhost:5173,https://joshua-risk-lab.duckdns.org`    |
 
 These tell Auth0 where it may safely redirect to, log out to, and accept requests from.
 No wildcards are used.
@@ -278,15 +279,16 @@ No wildcards are used.
 Values the frontend may contain (they are public by design — **never** a client secret):
 
 ```
-AUTH0_DOMAIN=YOUR_TENANT.us.auth0.com
-AUTH0_CLIENT_ID=...
+AUTH0_DOMAIN=dev-mzsxo8m40hsfdx3h.us.auth0.com
+AUTH0_CLIENT_ID=gnVGyo2XJVENbUmNmW2UXggdWU9LRyAh
 AUTH0_AUDIENCE=https://enterprise-risk-api
 ```
 
-Create a test account in **Authentication → Database → Users** (`Username-Password-Authentication`
-connection) and make sure that connection is enabled for the SPA
-(**Applications → Enterprise Risk Lab Frontend → Connections**). Use this account to log in
-through the React application.
+A test account (`prueba@test.com`) was created in **User Management → Users → Create User**
+(**via UI**, connection `Username-Password-Authentication`). In older dashboards this page
+is under **Authentication → Database → Users**. The connection is enabled for the SPA in
+**Authentication → Database → Username-Password-Authentication → Applications**. The test
+password is not stored in this repository.
 
 ## Backend
 
@@ -321,11 +323,11 @@ Sample authenticated response:
 ### Configuration (`application.properties`)
 
 ```properties
-spring.security.oauth2.resourceserver.jwt.issuer-uri=https://YOUR_TENANT.us.auth0.com/
+spring.security.oauth2.resourceserver.jwt.issuer-uri=https://dev-mzsxo8m40hsfdx3h.us.auth0.com/
 spring.security.oauth2.resourceserver.jwt.audiences=https://enterprise-risk-api
 server.port=8080
 management.endpoints.web.exposure.include=health
-app.cors.allowed-origins=http://localhost:5173,https://YOUR-SUBDOMAIN.duckdns.org
+app.cors.allowed-origins=http://localhost:5173,https://joshua-risk-lab.duckdns.org
 ```
 
 ## Frontend
@@ -343,11 +345,11 @@ A Vite React SPA that delegates all authentication to Auth0.
   `JSON.parse: unexpected end of data`. Instead the UI shows
   `Request failed: API returned 401`, which points straight at the real cause.
 
-Environment variables (`.env.local`, git-ignored):
+Environment variables (`.env.local`, git-ignored; `.env.example` is the committed template):
 
 ```
-VITE_AUTH0_DOMAIN=YOUR_TENANT.us.auth0.com
-VITE_AUTH0_CLIENT_ID=YOUR_CLIENT_ID
+VITE_AUTH0_DOMAIN=dev-mzsxo8m40hsfdx3h.us.auth0.com
+VITE_AUTH0_CLIENT_ID=gnVGyo2XJVENbUmNmW2UXggdWU9LRyAh
 VITE_AUTH0_AUDIENCE=https://enterprise-risk-api
 VITE_API_URL=http://localhost:8080
 ```
@@ -363,8 +365,7 @@ VITE_API_URL=http://localhost:8080
 
 ```bash
 cd backend
-# set issuer + audience in src/main/resources/application.properties first
-./mvnw spring-boot:run
+./mvnw spring-boot:run          # Windows: .\mvnw.cmd spring-boot:run
 ```
 
 Verify the security baseline:
@@ -396,17 +397,32 @@ Open `http://localhost:5173`, log in, and click **Call protected API**.
 
 ## Deployment
 
+### Deployment environment
+
+| Item | Value |
+| ---- | ----- |
+| Public URL | `https://joshua-risk-lab.duckdns.org` |
+| Server | AWS EC2, Ubuntu Server 24.04 LTS (x86_64) |
+| SSH access | Key pair `risk-lab-key` (kept outside the repository), user `ubuntu` |
+| EC2 security group (`risk-lab-sg`) | Inbound 22 (SSH, own IP only), 80 and 443. **8080 closed** |
+| Host firewall | `ufw`: OpenSSH, 80/tcp, 443/tcp |
+| Web server | Apache 2.4.58 + Let's Encrypt certificate (Certbot, auto-renewal) |
+| Backend | `enterprise-risk-api` systemd service, user `riskapi`, listening on `127.0.0.1:8080` |
+| Frontend | Static build in `/var/www/enterprise-risk-frontend` |
+
 ### 1. Duck DNS
 
-Create a subdomain (e.g. `team4-risk.duckdns.org`) and point it at the server's public IP.
-To keep it updated, add a cron job on the server (the token stays on the server, never in
-the repo):
+The subdomain `joshua-risk-lab.duckdns.org` points to the EC2 instance's public IP. Because
+the IP of an EC2 instance without an Elastic IP can change, a cron job on the server keeps
+it updated. `<DUCKDNS_TOKEN>` is intentionally redacted: the real token only exists in
+`~/duckdns/duck.sh` on the server (mode 700), never in the repository.
 
 ```bash
-mkdir -p ~/duckdns && echo 'echo url="https://www.duckdns.org/update?domains=YOUR-SUBDOMAIN&token=YOUR_DUCKDNS_TOKEN&ip=" | curl -k -o ~/duckdns/duck.log -K -' > ~/duckdns/duck.sh
+mkdir -p ~/duckdns && echo 'echo url="https://www.duckdns.org/update?domains=joshua-risk-lab&token=<DUCKDNS_TOKEN>&ip=" | curl -k -o ~/duckdns/duck.log -K -' > ~/duckdns/duck.sh
 chmod 700 ~/duckdns/duck.sh
+~/duckdns/duck.sh && cat ~/duckdns/duck.log   # → OK
 (crontab -l 2>/dev/null; echo "*/5 * * * * ~/duckdns/duck.sh >/dev/null 2>&1") | crontab -
-nslookup YOUR-SUBDOMAIN.duckdns.org      # must return the server's public IP
+nslookup joshua-risk-lab.duckdns.org      # must return the server's public IP
 ```
 
 Then allow inbound TCP **80** and **443** only — **never** expose 8080 — both in the cloud
@@ -422,12 +438,13 @@ sudo ufw enable
 ### 2. Server packages (Ubuntu)
 
 ```bash
-sudo apt update
+sudo apt update && sudo apt upgrade -y
 sudo apt install -y apache2 certbot python3-certbot-apache openjdk-21-jre
 ```
 
-Harden the host first: change default credentials, create a non-root deployment user, and
-enable the firewall.
+Host hardening applied: SSH key-only login (no passwords) as the non-root `ubuntu` user,
+SSH restricted to one source IP in the security group, `ufw` enabled, OS packages updated,
+and the API running as a dedicated non-login system user.
 
 ### 3. Build artifacts (on a trusted machine or CI)
 
@@ -436,10 +453,10 @@ origin. Create `frontend/.env.production.local` (git-ignored; Vite gives it prio
 `.env.local` when running `npm run build`):
 
 ```
-VITE_AUTH0_DOMAIN=YOUR_TENANT.us.auth0.com
-VITE_AUTH0_CLIENT_ID=YOUR_CLIENT_ID
+VITE_AUTH0_DOMAIN=dev-mzsxo8m40hsfdx3h.us.auth0.com
+VITE_AUTH0_CLIENT_ID=gnVGyo2XJVENbUmNmW2UXggdWU9LRyAh
 VITE_AUTH0_AUDIENCE=https://enterprise-risk-api
-VITE_API_URL=https://YOUR-SUBDOMAIN.duckdns.org
+VITE_API_URL=https://joshua-risk-lab.duckdns.org
 ```
 
 ```bash
@@ -447,17 +464,19 @@ VITE_API_URL=https://YOUR-SUBDOMAIN.duckdns.org
 (cd backend  && ./mvnw clean package)   # → backend/target/*.jar
 ```
 
-Transfer the build outputs to the server over a secure channel (e.g. `scp`/`rsync` over SSH):
+Transfer the build outputs to the server over SSH (`scp`), from the repository root on the
+development machine:
 
 ```bash
-scp backend/target/enterprise-risk-api-0.0.1-SNAPSHOT.jar deploy/* USER@SERVER_IP:~/
-scp -r frontend/dist USER@SERVER_IP:~/
+scp -i path/to/risk-lab-key.pem backend/target/enterprise-risk-api-0.0.1-SNAPSHOT.jar ubuntu@joshua-risk-lab.duckdns.org:~/
+scp -i path/to/risk-lab-key.pem deploy/enterprise-risk-api.service deploy/enterprise-risk.conf ubuntu@joshua-risk-lab.duckdns.org:~/
+scp -i path/to/risk-lab-key.pem -r frontend/dist ubuntu@joshua-risk-lab.duckdns.org:~/
 ```
 
 ### 4. Backend service
 
-Edit `deploy/enterprise-risk-api.service` first: set your Auth0 tenant in the issuer URI and
-your Duck DNS hostname in `APP_CORS_ALLOWED_ORIGINS`. Compared with the base template, the
+`deploy/enterprise-risk-api.service` already contains this deployment's Auth0 issuer and
+the production origin in `APP_CORS_ALLOWED_ORIGINS`. Compared with the base template, the
 unit also sets `SERVER_ADDRESS=127.0.0.1` so the API **only listens on loopback** (defence in
 depth on top of the firewall), and adds basic systemd hardening (`NoNewPrivileges`,
 `PrivateTmp`, `ProtectSystem`, `ProtectHome`).
@@ -465,7 +484,7 @@ depth on top of the firewall), and adds basic systemd hardening (`NoNewPrivilege
 ```bash
 sudo mkdir -p /opt/enterprise-risk-api
 sudo cp ~/enterprise-risk-api-0.0.1-SNAPSHOT.jar /opt/enterprise-risk-api/app.jar
-sudo useradd --system --no-create-home riskapi
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin riskapi
 sudo chown -R riskapi:riskapi /opt/enterprise-risk-api
 
 sudo cp ~/enterprise-risk-api.service /etc/systemd/system/
@@ -477,11 +496,12 @@ sudo ss -tlnp | grep 8080                           # → 127.0.0.1:8080, not 0.
 
 ### 5. Apache + TLS
 
-Replace `YOUR-SUBDOMAIN` in `deploy/enterprise-risk.conf`, then:
+Using the virtual host in `deploy/enterprise-risk.conf`:
 
 ```bash
 sudo mkdir -p /var/www/enterprise-risk-frontend
 sudo cp -r ~/dist/* /var/www/enterprise-risk-frontend/
+sudo chmod -R a+rX /var/www/enterprise-risk-frontend   # scp from Windows leaves dirs as 700 → 403
 
 sudo a2enmod ssl proxy proxy_http rewrite headers
 sudo cp ~/enterprise-risk.conf /etc/apache2/sites-available/
@@ -490,7 +510,7 @@ sudo a2dissite 000-default.conf          # optional: remove the default Apache s
 sudo apachectl configtest
 sudo systemctl reload apache2
 
-sudo certbot --apache -d YOUR-SUBDOMAIN.duckdns.org
+sudo certbot --apache -d joshua-risk-lab.duckdns.org
 sudo certbot renew --dry-run
 ```
 
@@ -500,37 +520,49 @@ host into an HTTP→HTTPS redirect. In the generated `-le-ssl.conf` you can chan
 `RequestHeader set X-Forwarded-Proto "http"` to `"https"` so the backend knows the original
 scheme.
 
-Finally, make sure the frontend was built with `VITE_API_URL=https://YOUR-SUBDOMAIN.duckdns.org`,
-redeploy `dist/` if needed, and confirm the same HTTPS origin is in the Auth0 callback,
-logout, and web origin settings.
+The frontend is built with `VITE_API_URL=https://joshua-risk-lab.duckdns.org`, and the same
+HTTPS origin is registered in the Auth0 callback, logout and web origin settings.
+
+> Before the certificate was installed, the site loaded over `http://` but stayed blank:
+> the Auth0 SPA SDK needs the browser's Web Crypto API for PKCE, which is only available
+> on secure origins (`https://` or `localhost`). The login button appeared as soon as
+> HTTPS was enabled.
 
 ### 6. Verify from outside the server
 
 ```bash
-curl -i https://YOUR-SUBDOMAIN.duckdns.org/api/risk-status     # → 401 (expected)
-curl -m 5 http://YOUR-SUBDOMAIN.duckdns.org:8080/api/risk-status   # → timeout / refused
+curl -i https://joshua-risk-lab.duckdns.org/api/risk-status     # → 401 (expected)
+curl -m 5 http://joshua-risk-lab.duckdns.org:8080/api/risk-status   # → timeout / refused
 ```
 
 ## Verification checklist
 
-- [ ] Unauthenticated requests to `/api/risk-status` return **401**.
-- [ ] A logged-in user can call `/api/risk-status` from the frontend.
-- [ ] The backend validates the JWT **issuer** and **audience**.
-- [ ] The application is available at `https://YOUR-SUBDOMAIN.duckdns.org`.
-- [ ] The browser shows a **valid certificate** and HTTPS lock icon.
-- [ ] Port **8080** is **not** reachable from the public internet.
-- [ ] `sudo certbot renew --dry-run` succeeds.
+| Check | Status | How it was verified |
+| ----- | ------ | ------------------- |
+| Unauthenticated requests to `/api/risk-status` return **401** | ✅ | `curl` locally and against the public HTTPS URL ([evidence](#local-verification)) |
+| A logged-in user can call `/api/risk-status` from the frontend | ✅ | Screenshot of the deployed app ([evidence](#1-successful-authenticated-api-call)) |
+| The backend validates the JWT **issuer** and **audience** | ✅ | `issuer-uri` and `jwt.audiences` in `application.properties` / systemd unit; `SecurityConfigTest` |
+| The application is available at `https://joshua-risk-lab.duckdns.org` | ✅ | Deployed app screenshot |
+| The browser shows a **valid certificate** and HTTPS lock icon | ✅ | Certificate screenshot and `openssl` output ([evidence](#2-valid-tls-certificate)) |
+| Port **8080** is **not** reachable from the public internet | ✅ | External `curl` to `:8080` times out; security group and `ufw` allow only 22/80/443; API bound to `127.0.0.1` |
+| `sudo certbot renew --dry-run` succeeds | ✅ | "all simulated renewals succeeded" ([evidence](#2-valid-tls-certificate)) |
 
 ## Risk-control reflection
 
-| Control                     | Risk reduced                                 | Evidence                              |
-| --------------------------- | -------------------------------------------- | ------------------------------------- |
-| Auth0 authentication        | Impersonation and weak credential handling   | Auth0 login flow and user identity    |
-| JWT validation at the API   | Unauthorized API access                      | 401 without a valid token             |
-| Audience validation         | Token reuse against another API              | API accepts only its intended audience |
-| HTTPS with a valid cert     | Credential or token exposure in transit      | Browser certificate details           |
-| Apache reverse proxy        | Direct exposure of the application port      | Only ports 80 and 443 are public      |
-| Central service logs        | Delayed incident investigation               | `journalctl -u enterprise-risk-api`   |
+| Control                     | Risk reduced                                 | Evidence in this deployment |
+| --------------------------- | -------------------------------------------- | --------------------------- |
+| Auth0 authentication        | Impersonation and weak credential handling   | Login through Auth0 Universal Login; the app shows `Signed in as prueba@test.com` and the API returns the user's `sub` (`auth0\|6ad6...`). The SPA never handles the password. |
+| JWT validation at the API   | Unauthorized API access                      | `/api/risk-status` returns `401` + `WWW-Authenticate: Bearer` without a token, locally and in production. |
+| Audience validation         | Token reuse against another API              | `jwt.audiences=https://enterprise-risk-api`: a token issued for any other audience is rejected with `401`. |
+| HTTPS with a valid cert     | Credential or token exposure in transit      | Let's Encrypt certificate for `joshua-risk-lab.duckdns.org` (valid until 18 Jan 2027). The Auth0 SDK itself refuses to start over plain HTTP, because PKCE requires a secure origin. |
+| Apache reverse proxy        | Direct exposure of the application port      | Only 22/80/443 open in the EC2 security group and `ufw`; Spring Boot listens on `127.0.0.1:8080`; external `curl` to `:8080` times out. |
+| Central service logs        | Delayed incident investigation               | The API runs as the `enterprise-risk-api` systemd service, so its startup, errors and rejected requests are kept in journald: `sudo journalctl -u enterprise-risk-api --since today`. |
+
+**Authentication vs. authorization in this system.** Auth0 performs *authentication*: it
+proves who the user is and issues the tokens. Spring Boot performs *authorization*: for
+every request it decides whether the presented access token (signature, issuer, audience,
+expiry) is good enough to access `/api/**`. The frontend only carries the token. It never
+makes the access decision.
 
 ## Threat model and security notes
 
@@ -567,46 +599,116 @@ curl -m 5 http://YOUR-SUBDOMAIN.duckdns.org:8080/api/risk-status   # → timeout
 | SPA routes 404 on refresh                         | Apache rewrite to `index.html` not enabled (`a2enmod rewrite`).                    |
 | Certbot fails validation                          | Port 80 blocked, or Duck DNS not pointing at the server's public IP.               |
 | Frontend env changes ignored                      | Vite inlines `VITE_*` at build/dev-start time: restart `npm run dev` or rebuild.   |
+| Deployed page is blank over `http://`             | The Auth0 SDK only runs on secure origins; open the site with `https://`.          |
+| `403 Forbidden` for the frontend                  | Files copied with restrictive permissions: `sudo chmod -R a+rX /var/www/enterprise-risk-frontend`. |
+| SSH `Permission denied (publickey)`               | Wrong login user for the AMI (`ubuntu` for Ubuntu, `ec2-user` for Amazon Linux) or wrong key pair. |
+| SSH `UNPROTECTED PRIVATE KEY FILE` / key not accessible on Windows | Restrict the `.pem` with `icacls key.pem /inheritance:r` and `icacls key.pem /grant:r "%USERNAME%:R"`. |
 
 ## Evidence
 
-proceso crear API: <img width="2505" height="1321" alt="image" src="https://github.com/user-attachments/assets/9f000b9b-e10b-4f32-b836-3980d1a3aae9" />
-añadir permisos: <img width="1301" height="1126" alt="image" src="https://github.com/user-attachments/assets/635d9529-9b24-4e7b-8381-5cff152173e4" />
-creacion nueva aplicacion: <img width="1175" height="900" alt="image" src="https://github.com/user-attachments/assets/123f96c4-ef06-4d25-b8cb-38cb2acdf72a" />
-dominio nuevo añadido: <img width="1326" height="425" alt="image" src="https://github.com/user-attachments/assets/23f435f2-0ff0-4295-9d11-5cca0574de87" />
-prueba unauthenticated request API: <img width="1337" height="261" alt="image" src="https://github.com/user-attachments/assets/d82f63db-5340-4946-a670-a3af223522d2" />
-prueba login funcional: <img width="2182" height="1087" alt="image" src="https://github.com/user-attachments/assets/0fb6823a-9db2-477b-a817-d9d9da060f12" />
-prueba call protected API despues del login: <img width="601" height="438" alt="image" src="https://github.com/user-attachments/assets/1954b932-b630-4dfb-b8cd-6ff082f886ed" />
-firewall activo ubuntu: <img width="617" height="576" alt="image" src="https://github.com/user-attachments/assets/fd39266c-e2c7-4015-b2e6-b9ab08faccae" />
-prueba pagina funcional ubuntu(DNS, firewall funcionales): <img width="2171" height="1344" alt="image" src="https://github.com/user-attachments/assets/4ccdb3b0-01de-420b-8ca7-18db2b9b83c6" />
-terminal ubuntu: <img width="728" height="400" alt="image" src="https://github.com/user-attachments/assets/00e17660-889d-4782-b366-3069f7cf1f35" />
-prueba registr del correo: <img width="675" height="173" alt="image" src="https://github.com/user-attachments/assets/df6f9b21-00d5-4dee-b76e-c2cc844d8620" />
+### Required deliverables
 
+#### 1. Successful authenticated API call
 
-captura obligatoria1: <img width="1763" height="1007" alt="image" src="https://github.com/user-attachments/assets/87008c9b-4ee2-42ce-8199-e18bd6a426db" />
-captira obligatoria2, certificado valido: <img width="1475" height="870" alt="image" src="https://github.com/user-attachments/assets/8402355a-f46d-4877-8d75-575071f22305" />
+The user `prueba@test.com` is signed in through Auth0 at
+`https://joshua-risk-lab.duckdns.org` (lock icon in the address bar). Clicking
+**Call protected API** sends the access token as `Authorization: Bearer <token>` through
+Apache to Spring Boot, which validates it and returns the token subject.
 
+<img width="900" alt="Authenticated call to /api/risk-status from the deployed HTTPS frontend" src="https://github.com/user-attachments/assets/87008c9b-4ee2-42ce-8199-e18bd6a426db" />
 
+#### 2. Valid TLS certificate
 
+The browser shows a valid certificate for `joshua-risk-lab.duckdns.org` issued by Let's
+Encrypt.
 
-Add your evidence before submitting:
+<img width="750" alt="Browser certificate details for joshua-risk-lab.duckdns.org" src="https://github.com/user-attachments/assets/8402355a-f46d-4877-8d75-575071f22305" />
 
-| Deliverable                          | Path                              |
-| ------------------------------------ | --------------------------------- |
-| Screenshot: authenticated API call   | `docs/authenticated-api-call.png` |
-| Screenshot: valid certificate        | `docs/valid-certificate.png`      |
+Command output confirming the same certificate from outside the server:
 
-<!-- Uncomment once the images exist:
-![Authenticated API call](docs/authenticated-api-call.png)
-![Valid certificate](docs/valid-certificate.png)
--->
+```text
+$ openssl s_client -connect joshua-risk-lab.duckdns.org:443 -servername joshua-risk-lab.duckdns.org </dev/null 2>/dev/null \
+    | openssl x509 -noout -subject -issuer -dates
+subject=CN=joshua-risk-lab.duckdns.org
+issuer=C=US, O=Let's Encrypt, CN=YE2
+notBefore=Oct 20 03:45:56 2026 GMT
+notAfter=Jan 18 03:45:55 2027 GMT
+```
 
-The certificate can also be evidenced with command output:
+Automatic renewal test on the server:
 
-```bash
-openssl s_client -connect YOUR-SUBDOMAIN.duckdns.org:443 -servername YOUR-SUBDOMAIN.duckdns.org </dev/null 2>/dev/null \
-  | openssl x509 -noout -subject -issuer -dates
-sudo certbot certificates
+```text
+$ sudo certbot renew --dry-run
+Processing /etc/letsencrypt/renewal/joshua-risk-lab.duckdns.org.conf
+Simulating renewal of an existing certificate for joshua-risk-lab.duckdns.org
+Congratulations, all simulated renewals succeeded:
+  /etc/letsencrypt/live/joshua-risk-lab.duckdns.org/fullchain.pem (success)
+```
+
+### Auth0 configuration
+
+**API `Enterprise Risk Lab API`** created with identifier `https://enterprise-risk-api` and
+RS256:
+
+<img width="900" alt="Auth0 API creation" src="https://github.com/user-attachments/assets/9f000b9b-e10b-4f32-b836-3980d1a3aae9" />
+
+**Permission `read:risk`** added to the API:
+
+<img width="650" alt="read:risk permission in the Auth0 API" src="https://github.com/user-attachments/assets/635d9529-9b24-4e7b-8381-5cff152173e4" />
+
+**Single Page Application `Enterprise Risk Lab Frontend`** created:
+
+<img width="600" alt="Auth0 Single Page Application creation" src="https://github.com/user-attachments/assets/123f96c4-ef06-4d25-b8cb-38cb2acdf72a" />
+
+**Domain `joshua-risk-lab.duckdns.org`** added:
+
+<img width="650" alt="joshua-risk-lab.duckdns.org domain added" src="https://github.com/user-attachments/assets/23f435f2-0ff0-4295-9d11-5cca0574de87" />
+
+### Local verification
+
+**Unauthenticated request** to `http://localhost:8080/api/risk-status` returns
+`401` with `WWW-Authenticate: Bearer` and an empty body:
+
+<img width="900" alt="curl without token returns 401" src="https://github.com/user-attachments/assets/d82f63db-5340-4946-a670-a3af223522d2" />
+
+**Auth0 login** from the React application running on `http://localhost:5173`:
+
+<img width="900" alt="Auth0 login from the local frontend" src="https://github.com/user-attachments/assets/0fb6823a-9db2-477b-a817-d9d9da060f12" />
+
+**Protected API call after login** (local backend):
+
+<img width="500" alt="Protected API call after local login" src="https://github.com/user-attachments/assets/1954b932-b630-4dfb-b8cd-6ff082f886ed" />
+
+### Server deployment (AWS EC2, Ubuntu 24.04)
+
+**Host firewall (`ufw`)** active, allowing only OpenSSH, 80 and 443 (IPv4 and IPv6). Port
+8080 is not listed:
+
+<img width="500" alt="ufw status showing only OpenSSH, 80 and 443 allowed" src="https://github.com/user-attachments/assets/fd39266c-e2c7-4015-b2e6-b9ab08faccae" />
+
+**Apache reachable through Duck DNS** before deploying the site, proving that DNS, the
+security group and the firewall were correctly configured:
+
+<img width="900" alt="Apache default page served at joshua-risk-lab.duckdns.org" src="https://github.com/user-attachments/assets/4ccdb3b0-01de-420b-8ca7-18db2b9b83c6" />
+
+**Build artifacts transferred** to the server over SSH (`scp`): backend JAR, systemd unit,
+Apache virtual host and the frontend `dist/` directory:
+
+<img width="600" alt="Build artifacts in the server home directory" src="https://github.com/user-attachments/assets/00e17660-889d-4782-b366-3069f7cf1f35" />
+
+**Certbot** registering the Let's Encrypt account and requesting the certificate:
+
+<img width="600" alt="Certbot requesting the Let's Encrypt certificate" src="https://github.com/user-attachments/assets/df6f9b21-00d5-4dee-b76e-c2cc844d8620" />
+
+### Production checks from the public internet
+
+```text
+$ curl -i https://joshua-risk-lab.duckdns.org/api/risk-status
+HTTP/1.1 401
+WWW-Authenticate: Bearer
+
+$ curl -m 6 http://joshua-risk-lab.duckdns.org:8080/api/risk-status
+curl: (28) Connection timed out      # port 8080 is not reachable from the internet
 ```
 
 ## References
