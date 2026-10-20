@@ -570,6 +570,25 @@ curl -m 5 http://YOUR-SUBDOMAIN.duckdns.org:8080/api/risk-status   # → timeout
 
 ## Evidence
 
+proceso crear API: <img width="2505" height="1321" alt="image" src="https://github.com/user-attachments/assets/9f000b9b-e10b-4f32-b836-3980d1a3aae9" />
+añadir permisos: <img width="1301" height="1126" alt="image" src="https://github.com/user-attachments/assets/635d9529-9b24-4e7b-8381-5cff152173e4" />
+creacion nueva aplicacion: <img width="1175" height="900" alt="image" src="https://github.com/user-attachments/assets/123f96c4-ef06-4d25-b8cb-38cb2acdf72a" />
+dominio nuevo añadido: <img width="1326" height="425" alt="image" src="https://github.com/user-attachments/assets/23f435f2-0ff0-4295-9d11-5cca0574de87" />
+prueba unauthenticated request API: <img width="1337" height="261" alt="image" src="https://github.com/user-attachments/assets/d82f63db-5340-4946-a670-a3af223522d2" />
+prueba login funcional: <img width="2182" height="1087" alt="image" src="https://github.com/user-attachments/assets/0fb6823a-9db2-477b-a817-d9d9da060f12" />
+prueba call protected API despues del login: <img width="601" height="438" alt="image" src="https://github.com/user-attachments/assets/1954b932-b630-4dfb-b8cd-6ff082f886ed" />
+firewall activo ubuntu: <img width="617" height="576" alt="image" src="https://github.com/user-attachments/assets/fd39266c-e2c7-4015-b2e6-b9ab08faccae" />
+prueba pagina funcional ubuntu(DNS, firewall funcionales): <img width="2171" height="1344" alt="image" src="https://github.com/user-attachments/assets/4ccdb3b0-01de-420b-8ca7-18db2b9b83c6" />
+terminal ubuntu: <img width="728" height="400" alt="image" src="https://github.com/user-attachments/assets/00e17660-889d-4782-b366-3069f7cf1f35" />
+prueba registr del correo: <img width="675" height="173" alt="image" src="https://github.com/user-attachments/assets/df6f9b21-00d5-4dee-b76e-c2cc844d8620" />
+
+
+captura obligatoria1: <img width="1763" height="1007" alt="image" src="https://github.com/user-attachments/assets/87008c9b-4ee2-42ce-8199-e18bd6a426db" />
+captira obligatoria2, certificado valido: <img width="1475" height="870" alt="image" src="https://github.com/user-attachments/assets/8402355a-f46d-4877-8d75-575071f22305" />
+
+
+
+
 Add your evidence before submitting:
 
 | Deliverable                          | Path                              |
